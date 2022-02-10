@@ -1,7 +1,7 @@
 //! The Credentials Provider for an AWS Resource's IAM Role.
 
 use async_trait::async_trait;
-use hyper::Uri;
+use hyper::{Request, Body};
 use std::time::Duration;
 
 use crate::request::HttpClient;
@@ -77,7 +77,15 @@ impl Default for InstanceMetadataProvider {
 #[async_trait]
 impl ProvideAwsCredentials for InstanceMetadataProvider {
     async fn credentials(&self) -> Result<AwsCredentials, CredentialsError> {
-        let role_name = get_role_name(&self.client, self.timeout, &self.metadata_ip_addr)
+        let token = get_token(&self.client, self.timeout, &self.metadata_ip_addr)
+            .await
+            .map_err(|err| CredentialsError {
+                message: format!(
+                    "Could not get credentials' token from iam: {}",
+                    err.to_string()
+                ),
+            })?;
+        let role_name = get_role_name(&self.client, self.timeout, &self.metadata_ip_addr, &token)
             .await
             .map_err(|err| CredentialsError {
                 message: format!("Could not get credentials from iam: {}", err.to_string()),
@@ -88,6 +96,7 @@ impl ProvideAwsCredentials for InstanceMetadataProvider {
             self.timeout,
             &role_name,
             &self.metadata_ip_addr,
+            &token,
         )
         .await
         .map_err(|err| CredentialsError {
@@ -98,19 +107,36 @@ impl ProvideAwsCredentials for InstanceMetadataProvider {
     }
 }
 
+async fn get_token(
+    client: &HttpClient,
+    timeout: Duration,
+    ip_addr: &str,
+) -> Result<String, CredentialsError> {
+    let token_request_address = format!("{}/latest/api/token", ip_addr);
+    let request = Request::builder()
+        .method("PUT")
+        .uri(token_request_address)
+        .header("x-aws-ec2-metadata-token-ttl-seconds", 360000)
+        .body(Body::empty())
+        .unwrap();
+    Ok(client.request(request, timeout).await?)
+}
+
 /// Gets the role name to get credentials for using the IAM Metadata Service (169.254.169.254).
 async fn get_role_name(
     client: &HttpClient,
     timeout: Duration,
     ip_addr: &str,
+    token: &str,
 ) -> Result<String, CredentialsError> {
     let role_name_address = format!("http://{}/{}/", ip_addr, AWS_CREDENTIALS_PROVIDER_PATH);
-    let uri = match role_name_address.parse::<Uri>() {
-        Ok(u) => u,
-        Err(e) => return Err(CredentialsError::new(e)),
-    };
-
-    Ok(client.get(uri, timeout).await?)
+    let request = Request::builder()
+        .method("GET")
+        .uri(role_name_address)
+        .header("x-aws-ec2-metadata-token", token)
+        .body(Body::empty())
+        .unwrap();
+    Ok(client.request(request, timeout).await?)
 }
 
 /// Gets the credentials for an EC2 Instances IAM Role.
@@ -119,16 +145,18 @@ async fn get_credentials_from_role(
     timeout: Duration,
     role_name: &str,
     ip_addr: &str,
+    token: &str,
 ) -> Result<String, CredentialsError> {
     let credentials_provider_url = format!(
         "http://{}/{}/{}",
         ip_addr, AWS_CREDENTIALS_PROVIDER_PATH, role_name
     );
 
-    let uri = match credentials_provider_url.parse::<Uri>() {
-        Ok(u) => u,
-        Err(e) => return Err(CredentialsError::new(e)),
-    };
-
-    Ok(client.get(uri, timeout).await?)
+    let request = Request::builder()
+        .method("GET")
+        .uri(credentials_provider_url)
+        .header("x-aws-ec2-metadata-token", token)
+        .body(Body::empty())
+        .unwrap();
+    Ok(client.request(request, timeout).await?)
 }

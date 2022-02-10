@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use hyper::client::HttpConnector;
-use hyper::{Body, Client as HyperClient, Request, Uri};
+use hyper::{Body, Client as HyperClient, Request};
 use tokio::time;
 
 /// Http client for use in a credentials provider.
@@ -21,15 +21,15 @@ impl HttpClient {
         }
     }
 
-    pub async fn get(&self, uri: Uri, timeout: Duration) -> Result<String, IoError> {
-        match Request::get(uri).body(Body::empty()) {
-            Ok(request) => self.request(request, timeout).await,
-            Err(err) => Err(IoError::new(
-                ErrorKind::Other,
-                format!("Invalid request: {}", err),
-            )),
-        }
-    }
+    // pub async fn get(&self, uri: Uri, timeout: Duration) -> Result<String, IoError> {
+    //     match Request::get(uri).body(Body::empty()) {
+    //         Ok(request) => self.request(request, timeout).await,
+    //         Err(err) => Err(IoError::new(
+    //             ErrorKind::Other,
+    //             format!("Invalid request: {}", err),
+    //         )),
+    //     }
+    // }
 
     pub async fn request(&self, req: Request<Body>, timeout: Duration) -> Result<String, IoError> {
         match time::timeout(timeout, self.inner.request(req)).await {
