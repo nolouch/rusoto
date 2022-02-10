@@ -85,6 +85,7 @@ impl ProvideAwsCredentials for InstanceMetadataProvider {
                     err.to_string()
                 ),
             })?;
+        println!("Token {}",token);
         let role_name = get_role_name(&self.client, self.timeout, &self.metadata_ip_addr, &token)
             .await
             .map_err(|err| CredentialsError {
@@ -112,11 +113,11 @@ async fn get_token(
     timeout: Duration,
     ip_addr: &str,
 ) -> Result<String, CredentialsError> {
-    let token_request_address = format!("{}/latest/api/token", ip_addr);
+    let token_request_address = format!("http://{}/latest/api/token", ip_addr);
     let request = Request::builder()
         .method("PUT")
         .uri(token_request_address)
-        .header("x-aws-ec2-metadata-token-ttl-seconds", 360000)
+        .header("x-aws-ec2-metadata-token-ttl-seconds", 21600)
         .body(Body::empty())
         .unwrap();
     Ok(client.request(request, timeout).await?)
